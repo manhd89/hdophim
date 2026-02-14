@@ -1,4 +1,4 @@
-// src/pages/CategoryPage.js
+// src/pages/CountryPage.js
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
@@ -15,8 +15,8 @@ import {
   Pagination
 } from "@mui/material";
 
-function CategoryPage() {
-  const { category } = useParams();
+function CountryPage() {
+  const { country } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -25,20 +25,20 @@ function CategoryPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // đọc page từ URL khi load trang
+  // đọc page từ URL
   useEffect(() => {
     const pg = parseInt(searchParams.get("trang") || "1", 10);
     handleFetch(pg);
-  }, [category]);
+  }, [country]);
 
   const handleFetch = async (pageNum = 1) => {
-    if (!category) return;
+    if (!country) return;
 
     setLoading(true);
 
     try {
       const res = await axios.get(
-        `https://phimapi.com/v1/api/the-loai/${category}?page=${pageNum}`
+        `https://phimapi.com/v1/api/quoc-gia/${country}?page=${pageNum}`
       );
 
       const data = res.data.data;
@@ -48,7 +48,7 @@ function CategoryPage() {
       setPage(pageNum);
 
       // update URL
-      navigate(`/the-loai/${category}?trang=${pageNum}`, {
+      navigate(`/quoc-gia/${country}?trang=${pageNum}`, {
         replace: false
       });
 
@@ -62,7 +62,7 @@ function CategoryPage() {
   return (
     <Container sx={{ mt: 3 }}>
       <Typography variant="h5" gutterBottom>
-        Thể loại: {category}
+        Quốc gia: {country}
       </Typography>
 
       {loading ? (
@@ -121,4 +121,4 @@ function CategoryPage() {
   );
 }
 
-export default CategoryPage;
+export default CountryPage;

@@ -1,4 +1,4 @@
-// src/pages/CategoryPage.js
+// src/pages/TypeListPage.js
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
@@ -15,8 +15,8 @@ import {
   Pagination
 } from "@mui/material";
 
-function CategoryPage() {
-  const { category } = useParams();
+function TypeListPage() {
+  const { type_list } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -25,20 +25,20 @@ function CategoryPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // đọc page từ URL khi load trang
+  // đọc page từ URL
   useEffect(() => {
     const pg = parseInt(searchParams.get("trang") || "1", 10);
     handleFetch(pg);
-  }, [category]);
+  }, [type_list]);
 
   const handleFetch = async (pageNum = 1) => {
-    if (!category) return;
+    if (!type_list) return;
 
     setLoading(true);
 
     try {
       const res = await axios.get(
-        `https://phimapi.com/v1/api/the-loai/${category}?page=${pageNum}`
+        `https://phimapi.com/v1/api/danh-sach/${type_list}?page=${pageNum}`
       );
 
       const data = res.data.data;
@@ -48,7 +48,7 @@ function CategoryPage() {
       setPage(pageNum);
 
       // update URL
-      navigate(`/the-loai/${category}?trang=${pageNum}`, {
+      navigate(`/danh-sach/${type_list}?trang=${pageNum}`, {
         replace: false
       });
 
@@ -62,7 +62,7 @@ function CategoryPage() {
   return (
     <Container sx={{ mt: 3 }}>
       <Typography variant="h5" gutterBottom>
-        Thể loại: {category}
+        Danh sách: {type_list}
       </Typography>
 
       {loading ? (
@@ -85,18 +85,18 @@ function CategoryPage() {
                       component="img"
                       height="250"
                       image={`https://phimimg.com/${m.poster_url}`}
+                      onError={(e) => {
+                        e.target.src = "/no-image.jpg";
+                      }}
                     />
                   </Link>
 
                   <CardContent>
-                    <Typography variant="body2">
+                    <Typography variant="body2" noWrap>
                       {m.name}
                     </Typography>
 
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                    >
+                    <Typography variant="caption" color="text.secondary">
                       {m.year} • {m.quality}
                     </Typography>
                   </CardContent>
@@ -121,4 +121,4 @@ function CategoryPage() {
   );
 }
 
-export default CategoryPage;
+export default TypeListPage;

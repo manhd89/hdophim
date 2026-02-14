@@ -1,8 +1,7 @@
-// src/pages/CategoryPage.js
-import React, { useState, useEffect } from "react";
+// src/pages/LatestPage.js
+import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
-
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Container,
   Typography,
@@ -15,40 +14,36 @@ import {
   Pagination
 } from "@mui/material";
 
-function CategoryPage() {
-  const { category } = useParams();
+function LatestPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const [movies, setMovies] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // đọc page từ URL khi load trang
   useEffect(() => {
     const pg = parseInt(searchParams.get("trang") || "1", 10);
-    handleFetch(pg);
-  }, [category]);
+    fetchMovies(pg);
+  }, []);
 
-  const handleFetch = async (pageNum = 1) => {
-    if (!category) return;
-
+  const fetchMovies = async (pageNum = 1) => {
     setLoading(true);
 
     try {
       const res = await axios.get(
-        `https://phimapi.com/v1/api/the-loai/${category}?page=${pageNum}`
+        `https://phimapi.com/danh-sach/phim-moi-cap-nhat-v3?page=${pageNum}`
       );
 
-      const data = res.data.data;
+      const items = res.data.items || [];
+      const pagination = res.data.pagination || {};
 
-      setMovies(data.items || []);
-      setTotalPages(data.params?.pagination?.totalPages || 1);
+      setMovies(items);
+      setTotalPages(pagination.totalPages || 1);
       setPage(pageNum);
 
-      // update URL
-      navigate(`/the-loai/${category}?trang=${pageNum}`, {
+      navigate(`/phim-moi-cap-nhat?trang=${pageNum}`, {
         replace: false
       });
 
@@ -62,7 +57,7 @@ function CategoryPage() {
   return (
     <Container sx={{ mt: 3 }}>
       <Typography variant="h5" gutterBottom>
-        Thể loại: {category}
+        🔥 Phim mới cập nhật
       </Typography>
 
       {loading ? (
@@ -84,19 +79,23 @@ function CategoryPage() {
                     <CardMedia
                       component="img"
                       height="250"
-                      image={`https://phimimg.com/${m.poster_url}`}
+                      image={
+                        m.poster_url?.startsWith("http")
+                          ? m.poster_url
+                          : `https://phimimg.com/${m.poster_url}`
+                      }
+                      onError={(e) => {
+                        e.target.src = "/no-image.jpg";
+                      }}
                     />
                   </Link>
 
                   <CardContent>
-                    <Typography variant="body2">
+                    <Typography variant="body2" noWrap>
                       {m.name}
                     </Typography>
 
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                    >
+                    <Typography variant="caption" color="text.secondary">
                       {m.year} • {m.quality}
                     </Typography>
                   </CardContent>
@@ -110,7 +109,7 @@ function CategoryPage() {
               <Pagination
                 count={totalPages}
                 page={page}
-                onChange={(e, value) => handleFetch(value)}
+                onChange={(e, value) => fetchMovies(value)}
                 color="primary"
               />
             </Box>
@@ -121,4 +120,4 @@ function CategoryPage() {
   );
 }
 
-export default CategoryPage;
+export default LatestPage;
