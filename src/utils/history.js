@@ -6,22 +6,27 @@ export const getHistory = () => {
 };
 
 export const saveHistoryItem = (item) => {
+  if (!item?.slug) return;
+
   let history = getHistory();
 
-  // Lọc bỏ bản ghi cũ của ĐÚNG tập đó trong phim đó
-  history = history.filter(m => !(m.slug === item.slug && m.episode === item.episode));
+  // ❗ Chỉ giữ 1 record duy nhất cho mỗi phim
+  history = history.filter(m => m.slug !== item.slug);
 
-  // Thêm mới lên đầu
-  history.unshift(item);
+  history.unshift({
+    ...item,
+    episode: String(item.episode), // normalize
+    currentTime: Math.floor(item.currentTime || 0),
+    updatedAt: Date.now()
+  });
 
-  // Giới hạn 50 mục
   history = history.slice(0, 50);
 
   localStorage.setItem(KEY, JSON.stringify(history));
 };
 
-export const removeHistoryItem = (slug, episode) => {
-  const history = getHistory().filter(m => !(m.slug === slug && m.episode === episode));
+export const removeHistoryItem = (slug) => {
+  const history = getHistory().filter(m => m.slug !== slug);
   localStorage.setItem(KEY, JSON.stringify(history));
 };
 
