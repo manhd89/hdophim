@@ -21,6 +21,7 @@ async function handleVirtualRequest(event) {
 
   try {
     const manifest = await fetchAndProcessPlaylist(playlistUrl);
+
     return new Response(manifest, {
       headers: {
         "Content-Type": "application/vnd.apple.mpegurl",
@@ -39,6 +40,7 @@ async function fetchAndProcessPlaylist(playlistUrl) {
 
   let text = await res.text();
 
+  // resolve absolute URLs cho các dòng không phải comment
   text = text.replace(/^[^#].*$/gm, (line) => {
     try {
       return new URL(line.trim(), playlistUrl).toString();
@@ -47,20 +49,22 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     }
   });
 
+  // nếu là master playlist -> đi sâu stream con
   if (text.includes("#EXT-X-STREAM-INF")) {
     const lines = text.split("\n");
+
     for (let i = 1; i < lines.length; i++) {
       if (lines[i - 1].includes("#EXT-X-STREAM-INF")) {
-        const subUrl = lines[i].trim();
+        const subUrl = new URL(lines[i].trim(), playlistUrl).toString();
         return fetchAndProcessPlaylist(subUrl);
       }
     }
   }
 
-  return cleanManifest(text);
+  return cleanManifest(text, playlistUrl);
 }
 
-function cleanManifest(manifest) {
+function cleanManifest(manifest, baseUrl) {
   const lines = manifest.split(/\r?\n/);
   const result = [];
 
@@ -69,50 +73,124 @@ function cleanManifest(manifest) {
   while (i < lines.length) {
     const line = lines[i].trim();
 
-    if (line !== "#EXT-X-DISCONTINUITY") {
-      result.push(lines[i]);
+    // 1. Bỏ qua dòng trống hoặc các dòng comment rác của hệ thống (###)
+    if (!line || line.startsWith("###")) {
       i++;
       continue;
     }
 
-    const start = i;
-    let j = i + 1;
-    let segments = 0;
-    let hasKeyNone = false;
+    // 2. XỬ LÝ ĐỒNG BỘ: Thẻ thời lượng #EXTINF và URL phân đoạn phim ngay dưới nó
+    if (line.startsWith("#EXTINF:")) {
+      let extinfLine = lines[i]; // Tạm thời giữ lại dòng #EXTINF này
+      
+      // Tìm dòng chứa URL tiếp theo bên dưới (bỏ qua dòng trống/comment rác xen giữa nếu có)
+      let nextIdx = i + 1;
+      while (nextIdx < lines.length && (!lines[nextIdx].trim() || lines[nextIdx].trim().startsWith("###"))) {
+        nextIdx++;
+      }
 
-    while (j < lines.length) {
-      const l = lines[j].trim();
+      // Nếu tìm thấy dòng dữ liệu tiếp theo
+      if (nextIdx < lines.length) {
+        const nextLine = lines[nextIdx].trim();
 
-      if (l.startsWith("#EXTINF:")) segments++;
+        // Nếu cấu trúc bất thường (dính một thẻ tag # khác chứ không phải URL phim)
+        if (nextLine.startsWith("#")) {
+          result.push(extinfLine);
+          i++;
+          continue;
+        }
 
-      if (l.includes("#EXT-X-KEY:METHOD=NONE"))
-        hasKeyNone = true;
+        // Chuyển đổi thành Absolute URL đầy đủ dựa trên baseUrl
+        let url;
+        try {
+          url = new URL(nextLine, baseUrl).toString();
+        } catch {
+          i = nextIdx + 1;
+          continue;
+        }
 
-      if (l === "#EXT-X-DISCONTINUITY") break;
+        // 🔥 Thực hiện lọc quảng cáo thông qua logic filter của bạn
+        const cleanedUrl = processSegment(url);
 
-      j++;
+        if (cleanedUrl) {
+          // ĐÂY LÀ PHIM CHÍNH -> Giữ lại cả cặp (Dòng thời lượng + URL sạch quảng cáo)
+          result.push(extinfLine);
+          result.push(cleanedUrl);
+        } else {
+          // ĐÂY LÀ QUẢNG CÁO -> Bỏ qua cả cặp thời lượng + URL quảng cáo này
+          console.log("👉 Đã chặn segment quảng cáo:", url);
+          
+          // 🔥 ĐẶC BIỆT: Nếu ngay trước dòng quảng cáo này có thẻ #EXT-X-DISCONTINUITY, xóa nó luôn!
+          if (result.length > 0 && result[result.length - 1].trim().startsWith("#EXT-X-DISCONTINUITY")) {
+            result.pop(); // Gỡ bỏ thẻ discontinuity rác ra khỏi mảng kết quả
+            console.log("🔥 Đã xóa thẻ #EXT-X-DISCONTINUITY đi kèm quảng cáo");
+          }
+        }
+
+        i = nextIdx + 1; // Di chuyển con trỏ qua cặp vừa xử lý xong
+        continue;
+      }
     }
 
-    if (j >= lines.length) {
+    // 3. Khử trùng lặp các tag khởi tạo m3u8 nằm rải rác ở giữa file do gộp dữ liệu thô
+    if (line.startsWith("#EXTM3U") || line.startsWith("#EXT-X-VERSION") || line.startsWith("#EXT-X-PLAYLIST-TYPE")) {
+      if (result.length > 0) { 
+        i++;
+        continue;
+      }
+    }
+
+    // 4. Giữ nguyên các thẻ tag kỹ thuật hợp lệ khác phục vụ phim chính
+    if (line.startsWith("#")) {
       result.push(lines[i]);
-      i++;
-      continue;
+    } else {
+      // Trường hợp URL .ts đứng biệt lập không đi kèm #EXTINF phía trước
+      try {
+        const url = new URL(line, baseUrl).toString();
+        const cleanedUrl = processSegment(url);
+        if (cleanedUrl) result.push(cleanedUrl);
+      } catch {}
     }
 
-    if (hasKeyNone || (segments >= 5 && segments <= 20)) {
-      i = j + 1;
-      continue;
-    }
-
-    for (let k = start; k <= j; k++) {
-      result.push(lines[k]);
-    }
-
-    i = j + 1;
+    i++;
   }
 
+  // Cuối cùng: Dọn dẹp các thẻ #EXT-X-DISCONTINUITY bị thừa ở cuối luồng nếu quảng cáo nằm cuối danh sách
+  while (result.length > 0 && result[result.length - 1].trim().startsWith("#EXT-X-DISCONTINUITY")) {
+    result.pop();
+  }
+
+  // Gộp lại thành văn bản m3u8 chuẩn hóa hoàn chỉnh
   return result.join("\n")
-    .replace(/\/convertv\d+\//g, "/")
     .replace(/\n{2,}/g, "\n")
     .trim();
+}
+
+/* ====================================
+   FILTER LOGIC NHẬN DIỆN QUẢNG CÁO
+==================================== */
+
+function normalizeConvertPath(url) {
+  return url.replace(/\/convertv\d+\//g, "/");
+}
+
+function isTsFile(url) {
+  return typeof url === "string" && url.endsWith(".ts");
+}
+
+function isValidMovieSegment(url) {
+  // Kiểm tra cấu trúc URL phim chính gốc (/năm_tháng_ngày/ID_Phim/3500kb/hls/tên_file.ts)
+  return /^https?:\/\/[^/]+\/\d{8}\/[A-Za-z0-9]+\/\d+kb\/hls\/.+\.ts$/i.test(url);
+}
+
+function processSegment(url) {
+  if (!url) return null;
+
+  const cleanedUrl = normalizeConvertPath(url);
+
+  if (!isTsFile(cleanedUrl)) return null;
+
+  if (!isValidMovieSegment(cleanedUrl)) return null;
+
+  return cleanedUrl;
 }
