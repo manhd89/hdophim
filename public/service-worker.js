@@ -64,44 +64,45 @@ async function fetchAndProcessPlaylist(playlistUrl) {
   return cleanManifest(text, playlistUrl);
 }
 
-function cleanManifest(manifest, baseUrl) {
-  const lines = manifest.split(/\r?\n/);
+function cleanManifest(lines) {
   const result = [];
 
-  let i = 0;
+  let pendingExtinf = null;
 
-  while (i < lines.length) {
-    const line = lines[i].trim();
+  for (const line of lines) {
+    const trimmed = line.trim();
 
-    // giữ nguyên comment HLS
-    if (line.startsWith("#")) {
-      result.push(lines[i]);
-      i++;
+    // 1. EXTINF -> không push ngay, chỉ cache lại
+    if (trimmed.startsWith("#EXTINF")) {
+      pendingExtinf = trimmed;
       continue;
     }
 
-    // resolve URL segment
-    let url;
-    try {
-      url = new URL(line, baseUrl).toString();
-    } catch {
-      i++;
+    // 2. comment khác -> push bình thường
+    if (trimmed.startsWith("#")) {
+      result.push(trimmed);
       continue;
     }
 
-    // 🔥 APPLY FILTER QUẢNG CÁO Ở ĐÂY
-    const cleaned = processSegment(url);
+    // 3. segment .ts
+    const processed = processSegment(trimmed);
 
-    if (cleaned) {
-      result.push(cleaned);
+    if (!processed) {
+      // ❌ bỏ luôn EXTINF đi kèm để tránh mồ côi
+      pendingExtinf = null;
+      continue;
     }
 
-    i++;
+    // ✔ chỉ khi segment hợp lệ mới push EXTINF + URL
+    if (pendingExtinf) {
+      result.push(pendingExtinf);
+      pendingExtinf = null;
+    }
+
+    result.push(processed);
   }
 
-  return result.join("\n")
-    .replace(/\n{2,}/g, "\n")
-    .trim();
+  return result;
 }
 
 /* =========================
