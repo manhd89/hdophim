@@ -21,6 +21,7 @@ async function handleVirtualRequest(event) {
 
   try {
     const manifest = await fetchAndProcessPlaylist(playlistUrl);
+
     return new Response(manifest, {
       headers: {
         "Content-Type": "application/vnd.apple.mpegurl",
@@ -39,6 +40,7 @@ async function fetchAndProcessPlaylist(playlistUrl) {
 
   let text = await res.text();
 
+  // resolve absolute URLs cho các dòng không phải comment
   text = text.replace(/^[^#].*$/gm, (line) => {
     try {
       return new URL(line.trim(), playlistUrl).toString();
@@ -47,20 +49,22 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     }
   });
 
+  // nếu là master playlist -> đi sâu stream con
   if (text.includes("#EXT-X-STREAM-INF")) {
     const lines = text.split("\n");
+
     for (let i = 1; i < lines.length; i++) {
       if (lines[i - 1].includes("#EXT-X-STREAM-INF")) {
-        const subUrl = lines[i].trim();
+        const subUrl = new URL(lines[i].trim(), playlistUrl).toString();
         return fetchAndProcessPlaylist(subUrl);
       }
     }
   }
 
-  return cleanManifest(text);
+  return cleanManifest(text, playlistUrl);
 }
 
-function cleanManifest(manifest) {
+function cleanManifest(manifest, baseUrl) {
   const lines = manifest.split(/\r?\n/);
   const result = [];
 
@@ -69,50 +73,61 @@ function cleanManifest(manifest) {
   while (i < lines.length) {
     const line = lines[i].trim();
 
-    if (line !== "#EXT-X-DISCONTINUITY") {
+    // giữ nguyên comment HLS
+    if (line.startsWith("#")) {
       result.push(lines[i]);
       i++;
       continue;
     }
 
-    const start = i;
-    let j = i + 1;
-    let segments = 0;
-    let hasKeyNone = false;
-
-    while (j < lines.length) {
-      const l = lines[j].trim();
-
-      if (l.startsWith("#EXTINF:")) segments++;
-
-      if (l.includes("#EXT-X-KEY:METHOD=NONE"))
-        hasKeyNone = true;
-
-      if (l === "#EXT-X-DISCONTINUITY") break;
-
-      j++;
-    }
-
-    if (j >= lines.length) {
-      result.push(lines[i]);
+    // resolve URL segment
+    let url;
+    try {
+      url = new URL(line, baseUrl).toString();
+    } catch {
       i++;
       continue;
     }
 
-    if (hasKeyNone || (segments >= 5 && segments <= 20)) {
-      i = j + 1;
-      continue;
+    // 🔥 APPLY FILTER QUẢNG CÁO Ở ĐÂY
+    const cleaned = processSegment(url);
+
+    if (cleaned) {
+      result.push(cleaned);
     }
 
-    for (let k = start; k <= j; k++) {
-      result.push(lines[k]);
-    }
-
-    i = j + 1;
+    i++;
   }
 
   return result.join("\n")
-    .replace(/\/convertv7\//g, "/")
     .replace(/\n{2,}/g, "\n")
     .trim();
+}
+
+/* =========================
+   FILTER LOGIC CỦA BẠN
+========================= */
+
+function normalizeConvertPath(url) {
+  return url.replace(/\/convertv\d+\//g, "/");
+}
+
+function isTsFile(url) {
+  return typeof url === "string" && url.endsWith(".ts");
+}
+
+function isValidMovieSegment(url) {
+  return /^https?:\/\/[^/]+\/\d{8}\/[A-Za-z0-9]+\/\d+kb\/hls\/.+\.ts$/i.test(url);
+}
+
+function processSegment(url) {
+  if (!url) return null;
+
+  const cleanedUrl = normalizeConvertPath(url);
+
+  if (!isTsFile(cleanedUrl)) return null;
+
+  if (!isValidMovieSegment(cleanedUrl)) return null;
+
+  return cleanedUrl;
 }
